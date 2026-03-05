@@ -166,7 +166,7 @@ def extract_data_from_images(image_list):
 
     try:
         response = client.chat.completions.create(
-            model="google/gemini-2.0-flash-exp:free",
+            model="google/gemini-flash-1.5",
             max_tokens=2000,
             timeout=90,
             messages=[{"role": "user", "content": content}]
