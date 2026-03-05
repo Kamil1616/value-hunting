@@ -9,15 +9,11 @@ from openai import OpenAI
 
 app = Flask(__name__)
 
-# Grok API — OpenAI formatında çalışır
 client = OpenAI(
     api_key=os.environ.get("GROK_API_KEY"),
     base_url="https://api.x.ai/v1"
 )
 
-# ══════════════════════════════════════════════════════════════
-# SABİT KALİBRE PARAMETRELERİ
-# ══════════════════════════════════════════════════════════════
 W_SPEC     = 0.55
 W_GEN      = 0.45
 HT_FACTOR  = 0.48
@@ -25,17 +21,12 @@ GS_LEADER  = 1.08
 GS_DRAW    = 1.04
 LEAGUE_AVG = 1.20
 PAYOUT     = 0.90
-DC_RHO     = -0.14
+DC_RHO     = -0.13
 
-
-# ══════════════════════════════════════════════════════════════
-# VALUE HUNTING MODELİ
-# ══════════════════════════════════════════════════════════════
 def poisson_pmf(k, lam):
     if lam <= 0:
         return 1.0 if k == 0 else 0.0
     return math.exp(-lam) * (lam ** k) / math.factorial(k)
-
 
 def dixon_coles(i, j, lh, la, rho=DC_RHO):
     if i == 0 and j == 0: return 1 - lh * la * rho
@@ -44,26 +35,21 @@ def dixon_coles(i, j, lh, la, rho=DC_RHO):
     elif i == 1 and j == 1: return 1 - rho
     return 1.0
 
-
 def result(i, j):
     return '1' if i > j else ('X' if i == j else '2')
-
 
 def avg(lst, idx):
     if not lst:
         return 1.0
     return sum(x[idx] for x in lst) / len(lst)
 
-
 def value_hunting_model(home_genel, home_ic, away_genel, away_dis):
     h_att = W_SPEC * avg(home_ic, 0)  + W_GEN * avg(home_genel, 0)
     h_def = W_SPEC * avg(home_ic, 1)  + W_GEN * avg(home_genel, 1)
     a_att = W_SPEC * avg(away_dis, 0) + W_GEN * avg(away_genel, 0)
     a_def = W_SPEC * avg(away_dis, 1) + W_GEN * avg(away_genel, 1)
-
     lam_h = math.sqrt((h_att / LEAGUE_AVG) * (a_def / LEAGUE_AVG)) * LEAGUE_AVG
     lam_a = math.sqrt((a_att / LEAGUE_AVG) * (h_def / LEAGUE_AVG)) * LEAGUE_AVG
-
     score_probs = {}
     for i in range(7):
         for j in range(7):
@@ -72,14 +58,12 @@ def value_hunting_model(home_genel, home_ic, away_genel, away_dis):
             score_probs[(i, j)] = p
     total = sum(score_probs.values())
     score_probs = {k: v / total for k, v in score_probs.items()}
-
     ht_probs = {}
     for i in range(5):
         for j in range(5):
             ht_probs[(i, j)] = poisson_pmf(i, lam_h * HT_FACTOR) * poisson_pmf(j, lam_a * HT_FACTOR)
     ht_total = sum(ht_probs.values())
     ht_probs = {k: v / ht_total for k, v in ht_probs.items()}
-
     iyms = {}
     for (hi, hj), hp in ht_probs.items():
         for (fi, fj), fp in score_probs.items():
@@ -93,18 +77,15 @@ def value_hunting_model(home_genel, home_ic, away_genel, away_dis):
             else:
                 gs = 1.0
             iyms[key] = iyms.get(key, 0) + hp * fp * gs
-
     total_iyms = sum(iyms.values())
     iyms = {k: v / total_iyms for k, v in iyms.items()}
     sorted_iyms = sorted(iyms.items(), key=lambda x: x[1], reverse=True)
     return sorted_iyms, lam_h, lam_a
 
-
 def format_bar(pct, max_len=20):
     filled = int(pct * max_len / 35)
     filled = min(filled, max_len)
     return '▓' * filled + '░' * (max_len - filled)
-
 
 def build_output(home_name, away_name, sorted_iyms, lam_h, lam_a):
     lines = []
@@ -134,10 +115,6 @@ def build_output(home_name, away_name, sorted_iyms, lam_h, lam_a):
     lines.append("━" * W)
     return "\n".join(lines)
 
-
-# ══════════════════════════════════════════════════════════════
-# GÖRSEL OKUMA (GROK VİSİON API)
-# ══════════════════════════════════════════════════════════════
 VISION_PROMPT = """Bu istatistik.nesine.com ekran görüntüsünden futbol maç verilerini çıkar.
 
 Sayfada 2 takım var: üstteki EV SAHİBİ, alttaki DEPLASMAN.
@@ -169,7 +146,6 @@ SADECE JSON döndür:
   "away_genel": [[attığı, yediği], ...],
   "away_dis": [[attığı, yediği], ...]
 }"""
-
 
 def extract_data_from_images(image_list):
     content = []
@@ -204,10 +180,8 @@ def extract_data_from_images(image_list):
     raw = re.sub(r'```json\s*', '', raw)
     raw = re.sub(r'```\s*', '', raw)
     raw = raw.strip()
-
     data = json.loads(raw)
     return data
-
 
 def process_match_data(data):
     home_team  = data.get("home_team", "Ev Sahibi")
@@ -216,24 +190,16 @@ def process_match_data(data):
     home_ic    = [tuple(x) for x in data.get("home_ic", [])]
     away_genel = [tuple(x) for x in data.get("away_genel", [])]
     away_dis   = [tuple(x) for x in data.get("away_dis", [])]
-
     if not home_ic: home_ic = home_genel
     if not away_dis: away_dis = away_genel
-
     if len(home_genel) < 3 or len(away_genel) < 3:
         raise ValueError("Yeterli maç verisi çıkarılamadı")
-
     sorted_iyms, lam_h, lam_a = value_hunting_model(home_genel, home_ic, away_genel, away_dis)
     return build_output(home_team, away_team, sorted_iyms, lam_h, lam_a)
 
-
-# ══════════════════════════════════════════════════════════════
-# FLASK ROUTES
-# ══════════════════════════════════════════════════════════════
 @app.route('/')
 def index():
     return render_template('index.html')
-
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -241,26 +207,19 @@ def analyze():
         files = request.files.getlist('images')
         if not files:
             return jsonify({"error": "Görsel yüklenmedi"}), 400
-
         images = []
         for f in files:
             data = f.read()
             b64 = base64.standard_b64encode(data).decode('utf-8')
             images.append({"base64": b64, "media_type": f.content_type or 'image/jpeg', "name": f.filename})
-
         results = []
         total = len(images)
-
         if total % 2 == 0:
             pairs = [(images[i], images[i+1]) for i in range(0, total, 2)]
             for pair in pairs:
                 try:
                     data = extract_data_from_images(list(pair))
-                    results.append({
-                        "success": True,
-                        "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}",
-                        "output": process_match_data(data)
-                    })
+                    results.append({"success": True, "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}", "output": process_match_data(data)})
                 except Exception as e:
                     print(f"[PAIR HATA]: {str(e)}", file=sys.stderr, flush=True)
                     results.append({"success": False, "match": pair[0]['name'], "error": str(e)})
@@ -268,22 +227,15 @@ def analyze():
             for img in images:
                 try:
                     data = extract_data_from_images([img])
-                    results.append({
-                        "success": True,
-                        "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}",
-                        "output": process_match_data(data)
-                    })
+                    results.append({"success": True, "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}", "output": process_match_data(data)})
                 except Exception as e:
                     print(f"[IMG HATA]: {str(e)}", file=sys.stderr, flush=True)
                     results.append({"success": False, "match": img['name'], "error": str(e)})
-
         print(f"[SONUÇ]: {len(results)} maç, {sum(1 for r in results if r['success'])} başarılı", file=sys.stderr, flush=True)
         return jsonify({"results": results})
-
     except Exception as e:
         print(f"[GENEL HATA]: {str(e)}", file=sys.stderr, flush=True)
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
