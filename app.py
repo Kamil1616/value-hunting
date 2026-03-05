@@ -5,6 +5,8 @@ import base64
 import json
 import re
 import time
+from PIL import Image
+import io
 from flask import Flask, request, jsonify, render_template
 from openai import OpenAI
 
@@ -166,7 +168,7 @@ def extract_data_from_images(image_list):
 
     try:
         response = client.chat.completions.create(
-            model="openrouter/auto",
+            model="meta-llama/llama-3.2-11b-vision-instruct:free",
             max_tokens=2000,
             timeout=90,
             messages=[{"role": "user", "content": content}]
@@ -210,8 +212,17 @@ def analyze():
         images = []
         for f in files:
             data = f.read()
+            # Görseli sıkıştır - max 800px, kalite 70
+            try:
+                img = Image.open(io.BytesIO(data))
+                img.thumbnail((800, 800), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format='JPEG', quality=70)
+                data = buf.getvalue()
+            except:
+                pass
             b64 = base64.standard_b64encode(data).decode('utf-8')
-            images.append({"base64": b64, "media_type": f.content_type or 'image/jpeg', "name": f.filename})
+            images.append({"base64": b64, "media_type": 'image/jpeg', "name": f.filename})
         results = []
         total = len(images)
         if total % 2 == 0:
