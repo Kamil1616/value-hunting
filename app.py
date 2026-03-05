@@ -21,7 +21,7 @@ GS_LEADER  = 1.08
 GS_DRAW    = 1.04
 LEAGUE_AVG = 1.20
 PAYOUT     = 0.90
-DC_RHO     = -0.13
+DC_RHO     = -0.14
 
 def poisson_pmf(k, lam):
     if lam <= 0:
