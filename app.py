@@ -145,7 +145,7 @@ SADECE JSON döndür:
 }"""
 
 def extract_data_from_images(image_list):
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     parts = []
     if len(image_list) == 1:
         img_data = base64.b64decode(image_list[0]['base64'])
