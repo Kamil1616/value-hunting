@@ -5,14 +5,11 @@ import base64
 import json
 import re
 from flask import Flask, request, jsonify, render_template
-from openai import OpenAI
+import google.generativeai as genai
 
 app = Flask(__name__)
 
-client = OpenAI(
-    api_key=os.environ.get("GROK_API_KEY"),
-    base_url="https://api.x.ai/v1"
-)
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 W_SPEC     = 0.55
 W_GEN      = 0.45
@@ -21,7 +18,7 @@ GS_LEADER  = 1.08
 GS_DRAW    = 1.04
 LEAGUE_AVG = 1.20
 PAYOUT     = 0.90
-DC_RHO     = -0.14
+DC_RHO     = -0.13
 
 def poisson_pmf(k, lam):
     if lam <= 0:
@@ -148,35 +145,24 @@ SADECE JSON döndür:
 }"""
 
 def extract_data_from_images(image_list):
-    content = []
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    parts = []
     if len(image_list) == 1:
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:{image_list[0]['media_type']};base64,{image_list[0]['base64']}"}
-        })
-        content.append({"type": "text", "text": VISION_PROMPT})
+        img_data = base64.b64decode(image_list[0]['base64'])
+        parts.append({"mime_type": image_list[0]['media_type'], "data": img_data})
+        parts.append(VISION_PROMPT)
     else:
         for img in image_list[:2]:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{img['media_type']};base64,{img['base64']}"}
-            })
-        content.append({"type": "text", "text": VISION_PROMPT_PAIR})
-
+            img_data = base64.b64decode(img['base64'])
+            parts.append({"mime_type": img['media_type'], "data": img_data})
+        parts.append(VISION_PROMPT_PAIR)
     try:
-        response = client.chat.completions.create(
-            model="grok-2-vision-latest",
-            max_tokens=2000,
-            timeout=90,
-            messages=[{"role": "user", "content": content}]
-        )
+        response = model.generate_content(parts, request_options={"timeout": 60})
+        raw = response.text.strip()
     except Exception as api_err:
         print(f"[API HATA]: {str(api_err)}", file=sys.stderr, flush=True)
-        raise ValueError(f"Grok API hatası: {str(api_err)}")
-
-    raw = response.choices[0].message.content.strip()
-    print(f"[GROK RAW]: {raw[:300]}", file=sys.stderr, flush=True)
-
+        raise ValueError(f"Gemini API hatası: {str(api_err)}")
+    print(f"[GEMINI RAW]: {raw[:300]}", file=sys.stderr, flush=True)
     raw = re.sub(r'```json\s*', '', raw)
     raw = re.sub(r'```\s*', '', raw)
     raw = raw.strip()
