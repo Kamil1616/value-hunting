@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Value Hunting — İY/MS Analiz</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e2d45;
+    --accent: #00d4ff;
+    --accent2: #7c3aed;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+
+  /* HEADER */
+  .header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo {
+    width: 42px; height: 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .header-text h1 {
+    font-size: 18px; font-weight: 600; letter-spacing: 0.5px;
+    background: linear-gradient(90deg, var(--accent), #a78bfa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header-text p {
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+  }
+  .model-badge {
+    margin-left: auto;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.3);
+    color: var(--accent);
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  }
+
+  /* MAIN LAYOUT */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 24px;
+  }
+
+  @media (max-width: 900px) {
+    .container { grid-template-columns: 1fr; padding: 16px; }
+  }
+
+  /* UPLOAD PANEL */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    height: fit-content;
+    position: sticky;
+    top: 24px;
+  }
+  .panel h2 {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--accent); margin-bottom: 20px;
+  }
+
+  /* DROP ZONE */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,212,255,0.05);
+  }
+  .dropzone input { display: none; }
+  .drop-icon { font-size: 36px; margin-bottom: 12px; }
+  .drop-title {
+    font-size: 14px; font-weight: 500; color: var(--text);
+    margin-bottom: 6px;
+  }
+  .drop-sub { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* FILE LIST */
+  .file-list {
+    margin-top: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 200px; overflow-y: auto;
+  }
+  .file-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+  }
+  .file-item .fi-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--text);
+  }
+  .file-item .fi-remove {
+    color: var(--muted); cursor: pointer; padding: 2px 4px;
+    border-radius: 4px; font-size: 14px;
+  }
+  .file-item .fi-remove:hover { color: var(--red); }
+
+  /* MODE SELECTOR */
+  .mode-selector {
+    margin-top: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .mode-selector label {
+    font-size: 12px; color: var(--muted); display: block; margin-bottom: 8px;
+  }
+  .mode-options {
+    display: flex; gap: 8px;
+  }
+  .mode-btn {
+    flex: 1; padding: 8px; border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted); font-size: 11px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s; text-align: center;
+  }
+  .mode-btn.active {
+    border-color: var(--accent);
+    background: rgba(0,212,255,0.1);
+    color: var(--accent);
+  }
+
+  /* INFO BOX */
+  .info-box {
+    margin-top: 16px;
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #a78bfa;
+    line-height: 1.6;
+  }
+
+  /* ANALYZE BTN */
+  .btn-analyze {
+    margin-top: 20px;
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none; border-radius: 10px;
+    color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-analyze:hover { opacity: 0.9; }
+  .btn-analyze:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* PARAMS */
+  .params-box {
+    margin-top: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .params-box h3 {
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+  .params-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .param-item {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .param-item .pk { font-size: 10px; color: var(--muted); }
+  .param-item .pv {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+  }
+
+  /* RESULTS PANEL */
+  .results-panel {
+    display: flex; flex-direction: column; gap: 16px;
+  }
+
+  /* RESULT CARD */
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .result-header {
+    padding: 16px 20px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .result-match {
+    font-size: 14px; font-weight: 600; color: var(--text);
+  }
+  .result-badge {
+    font-size: 10px; padding: 3px 10px; border-radius: 20px;
+    font-weight: 600; letter-spacing: 0.5px;
+  }
+  .badge-ok {
+    background: rgba(16,185,129,0.15);
+    color: var(--green); border: 1px solid rgba(16,185,129,0.3);
+  }
+  .badge-err {
+    background: rgba(239,68,68,0.15);
+    color: var(--red); border: 1px solid rgba(239,68,68,0.3);
+  }
+  .result-body {
+    padding: 20px;
+  }
+  .result-output {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.8;
+    color: #94a3b8;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* EMPTY STATE */
+  .empty-state {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 60px 40px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-title { font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+  .empty-sub { font-size: 13px; line-height: 1.6; }
+
+  /* LOADING */
+  .loading-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    color: var(--text); font-size: 14px;
+    font-weight: 500;
+  }
+  .loading-sub { color: var(--muted); font-size: 12px; }
+
+  /* PROGRESS */
+  .progress-bar {
+    display: none;
+    margin-top: 12px;
+    background: var(--border);
+    border-radius: 4px; height: 4px; overflow: hidden;
+  }
+  .progress-bar.show { display: block; }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transition: width 0.3s;
+    border-radius: 4px;
+  }
+
+  /* STATS */
+  .stats-bar {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    padding: 16px 20px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-item {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .stat-item .sv {
+    font-family: var(--mono); font-size: 20px; font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-item .sk { font-size: 11px; color: var(--muted); }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* HIGHLIGHT in output */
+  .hl-gold { color: #f59e0b; font-weight: 700; }
+  .hl-silver { color: #94a3b8; font-weight: 600; }
+  .hl-bar { color: #00d4ff; }
+  .hl-sep { color: #475569; }
+  .hl-header { color: #7c3aed; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">🎯</div>
+  <div class="header-text">
+    <h1>VALUE HUNTING</h1>
+    <p>Poisson · Dixon-Coles · Form Ağırlığı · İY/MS Analiz</p>
+  </div>
+  <div class="model-badge">MODEL v2.0</div>
+</div>
+
+<div class="container">
+
+  <!-- UPLOAD PANEL -->
+  <div class="panel">
+    <h2>📁 Görsel Yükle</h2>
+
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*" multiple>
+      <div class="drop-icon">📸</div>
+      <div class="drop-title">Görselleri buraya sürükle</div>
+      <div class="drop-sub">veya tıklayarak seç<br>istatistik.nesine.com ekran görüntüleri</div>
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+
+    <div class="mode-selector">
+      <label>Görsel Modu</label>
+      <div class="mode-options">
+        <button class="mode-btn active" data-mode="pair" onclick="setMode('pair',this)">
+          📌 Çift<br><span style="font-size:9px;color:inherit">Genel + İç/Dış</span>
+        </button>
+        <button class="mode-btn" data-mode="single" onclick="setMode('single',this)">
+          📄 Tekli<br><span style="font-size:9px;color:inherit">Tek görsel/maç</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="info-box" id="modeInfo">
+      <strong>Çift Mod:</strong> Her maç için 2 görsel yükle.<br>
+      1. görsel → Genel sekmesi<br>
+      2. görsel → İç &amp; Dış sekmesi<br>
+      Toplam görsel sayısı çift olmalı.
+    </div>
+
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+
+    <button class="btn-analyze" id="analyzeBtn" onclick="analyze()" disabled>
+      <span>⚡</span> Analiz Et
+    </button>
+
+    <div class="params-box">
+      <h3>Model Parametreleri</h3>
+      <div class="params-grid">
+        <div class="param-item">
+          <span class="pk">W_SPEC</span>
+          <span class="pv">0.55</span>
+        </div>
+        <div class="param-item">
+          <span class="pk">W_GEN</span>
+          <span class="pv">0.45</span>
+        </div>
+        <div class="param-item">
+          <span class="pk">HT_FACTOR</span>
+          <span class="pv">0.48</span>
+        </div>
+        <div class="param-item">
+          <span class="pk">PAYOUT</span>
+          <span class="pv">%90</span>
+        </div>
+        <div class="param-item">
+          <span class="pk">DC_RHO</span>
+          <span class="pv">-0.13</span>
+        </div>
+        <div class="param-item">
+          <span class="pk">GS_LEADER</span>
+          <span class="pv">1.08</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="results-panel" id="resultsPanel">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📊</div>
+      <div class="empty-title">Analiz bekleniyor</div>
+      <div class="empty-sub">
+        istatistik.nesine.com'dan ekran görüntüsü yükle<br>
+        50'ye kadar görsel aynı anda işlenebilir
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Görseller analiz ediliyor...</div>
+  <div class="loading-sub" id="loadingSub">Value Hunting modeli hesaplıyor</div>
+</div>
+
+<script>
+let selectedFiles = [];
+let currentMode = 'pair';
+
+// Dropzone
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  addFiles(Array.from(e.dataTransfer.files));
+});
+fileInput.addEventListener('change', e => addFiles(Array.from(e.target.files)));
+
+function addFiles(files) {
+  const imgFiles = files.filter(f => f.type.startsWith('image/'));
+  selectedFiles = [...selectedFiles, ...imgFiles];
+  renderFileList();
+  updateBtn();
+}
+
+function removeFile(idx) {
+  selectedFiles.splice(idx, 1);
+  renderFileList();
+  updateBtn();
+}
+
+function renderFileList() {
+  const list = document.getElementById('fileList');
+  if (selectedFiles.length === 0) { list.innerHTML = ''; return; }
+  list.innerHTML = selectedFiles.map((f, i) => `
+    <div class="file-item">
+      <span>🖼️</span>
+      <span class="fi-name">${f.name}</span>
+      <span class="fi-remove" onclick="removeFile(${i})">✕</span>
+    </div>
+  `).join('');
+}
+
+function setMode(mode, btn) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const info = document.getElementById('modeInfo');
+  if (mode === 'pair') {
+    info.innerHTML = '<strong>Çift Mod:</strong> Her maç için 2 görsel yükle.<br>1. görsel → Genel sekmesi<br>2. görsel → İç &amp; Dış sekmesi<br>Toplam görsel sayısı çift olmalı.';
+  } else {
+    info.innerHTML = '<strong>Tekli Mod:</strong> Her görsel ayrı bir maç olarak işlenir.<br>Görsel içinde her iki takım ve her iki sekme verisi olmalı.';
+  }
+  updateBtn();
+}
+
+function updateBtn() {
+  const btn = document.getElementById('analyzeBtn');
+  const n = selectedFiles.length;
+  if (n === 0) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⚡</span> Analiz Et';
+    return;
+  }
+  if (currentMode === 'pair' && n % 2 !== 0) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⚠️</span> Çift sayı gerekli (${n} görsel)`;
+    return;
+  }
+  const matchCount = currentMode === 'pair' ? n / 2 : n;
+  btn.disabled = false;
+  btn.innerHTML = `<span>⚡</span> ${matchCount} Maçı Analiz Et`;
+}
+
+async function analyze() {
+  if (selectedFiles.length === 0) return;
+
+  const overlay = document.getElementById('loadingOverlay');
+  const loadingText = document.getElementById('loadingText');
+  const loadingSub = document.getElementById('loadingSub');
+  const progressBar = document.getElementById('progressBar');
+  const progressFill = document.getElementById('progressFill');
+
+  overlay.classList.add('show');
+  progressBar.classList.add('show');
+
+  const matchCount = currentMode === 'pair' ? selectedFiles.length / 2 : selectedFiles.length;
+  loadingText.textContent = `${matchCount} maç analiz ediliyor...`;
+  loadingSub.textContent = 'Claude Vision API görselleri okuyor';
+
+  const formData = new FormData();
+  formData.append('mode', currentMode);
+  selectedFiles.forEach(f => formData.append('images', f));
+
+  try {
+    progressFill.style.width = '30%';
+    loadingSub.textContent = 'Value Hunting modeli hesaplıyor...';
+    progressFill.style.width = '60%';
+
+    const resp = await fetch('/analyze', { method: 'POST', body: formData });
+    const data = await resp.json();
+
+    progressFill.style.width = '100%';
+
+    if (data.error) throw new Error(data.error);
+
+    renderResults(data.results);
+
+  } catch (err) {
+    alert('Hata: ' + err.message);
+  } finally {
+    setTimeout(() => {
+      overlay.classList.remove('show');
+      progressBar.classList.remove('show');
+      progressFill.style.width = '0%';
+    }, 500);
+  }
+}
+
+function renderResults(results) {
+  const panel = document.getElementById('resultsPanel');
+  document.getElementById('emptyState')?.remove();
+
+  const ok = results.filter(r => r.success).length;
+  const total = results.length;
+
+  // Stats
+  const statsHtml = `
+    <div class="stats-bar">
+      <div class="stat-item">
+        <span class="sv">${total}</span>
+        <span class="sk">Toplam Maç</span>
+      </div>
+      <div class="stat-item">
+        <span class="sv" style="color:var(--green)">${ok}</span>
+        <span class="sk">Başarılı</span>
+      </div>
+      <div class="stat-item">
+        <span class="sv" style="color:var(--red)">${total - ok}</span>
+        <span class="sk">Hatalı</span>
+      </div>
+    </div>`;
+
+  let cardsHtml = results.map(r => {
+    if (r.success) {
+      const highlighted = highlightOutput(r.output);
+      return `
+        <div class="result-card">
+          <div class="result-header">
+            <span class="result-match">⚽ ${r.match}</span>
+            <span class="result-badge badge-ok">✓ TAMAMLANDI</span>
+          </div>
+          <div class="result-body">
+            <div class="result-output">${highlighted}</div>
+          </div>
+        </div>`;
+    } else {
+      return `
+        <div class="result-card">
+          <div class="result-header">
+            <span class="result-match">❌ ${r.match}</span>
+            <span class="result-badge badge-err">HATA</span>
+          </div>
+          <div class="result-body">
+            <div style="color:var(--red);font-size:13px">${r.error}</div>
+          </div>
+        </div>`;
+    }
+  }).join('');
+
+  // Wrap in a container card for stats
+  const statsCard = `
+    <div class="result-card">
+      ${statsHtml}
+    </div>`;
+
+  panel.innerHTML = statsCard + cardsHtml;
+}
+
+function highlightOutput(text) {
+  // Escape HTML
+  let s = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Border lines
+  s = s.replace(/(━+)/g, '<span style="color:#1e3a5f">$1</span>');
+
+  // Separator
+  s = s.replace(/(· · ·[· ]+)/g, '<span style="color:#374151">$1</span>');
+
+  // Gold medal line
+  s = s.replace(/(🥇[^\n]+)/g, '<span style="color:#f59e0b;font-weight:700">$1</span>');
+  s = s.replace(/(🥈[^\n]+)/g, '<span style="color:#94a3b8;font-weight:600">$1</span>');
+
+  // ▓ bars
+  s = s.replace(/([▓░]+)/g, '<span style="color:#0ea5e9">$1</span>');
+
+  // Header line
+  s = s.replace(/(MAÇ · [^\n]+)/g, '<span style="color:#a78bfa;font-weight:700">$1</span>');
+
+  // EN GÜÇLÜ
+  s = s.replace(/(✅ EN GÜÇLÜ[^\n]+)/g, '<span style="color:#10b981;font-weight:700">$1</span>');
+
+  // Lambda
+  s = s.replace(/(λ_[^\n]+)/g, '<span style="color:#64748b">$1</span>');
+
+  return s;
+}
+</script>
+</body>
+</html>
