@@ -168,7 +168,7 @@ def extract_data_from_images(image_list):
 
     try:
         response = client.chat.completions.create(
-            model="meta-llama/llama-3.2-11b-vision-instruct:free",
+            model="qwen/qwen3-vl-30b-a3b-thinking",
             max_tokens=2000,
             timeout=90,
             messages=[{"role": "user", "content": content}]
