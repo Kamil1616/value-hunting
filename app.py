@@ -4,12 +4,16 @@ import math
 import base64
 import json
 import re
+import time
 from flask import Flask, request, jsonify, render_template
-import google.generativeai as genai
+from openai import OpenAI
 
 app = Flask(__name__)
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+client = OpenAI(
+    api_key=os.environ.get("OPENROUTER_API_KEY"),
+    base_url="https://openrouter.ai/api/v1"
+)
 
 W_SPEC     = 0.55
 W_GEN      = 0.45
@@ -18,7 +22,7 @@ GS_LEADER  = 1.08
 GS_DRAW    = 1.04
 LEAGUE_AVG = 1.20
 PAYOUT     = 0.90
-DC_RHO     = -0.13
+DC_RHO     = -0.14
 
 def poisson_pmf(k, lam):
     if lam <= 0:
@@ -145,24 +149,34 @@ SADECE JSON döndür:
 }"""
 
 def extract_data_from_images(image_list):
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    parts = []
+    content = []
     if len(image_list) == 1:
-        img_data = base64.b64decode(image_list[0]['base64'])
-        parts.append({"mime_type": image_list[0]['media_type'], "data": img_data})
-        parts.append(VISION_PROMPT)
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{image_list[0]['media_type']};base64,{image_list[0]['base64']}"}
+        })
+        content.append({"type": "text", "text": VISION_PROMPT})
     else:
         for img in image_list[:2]:
-            img_data = base64.b64decode(img['base64'])
-            parts.append({"mime_type": img['media_type'], "data": img_data})
-        parts.append(VISION_PROMPT_PAIR)
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{img['media_type']};base64,{img['base64']}"}
+            })
+        content.append({"type": "text", "text": VISION_PROMPT_PAIR})
+
     try:
-        response = model.generate_content(parts, request_options={"timeout": 60})
-        raw = response.text.strip()
+        response = client.chat.completions.create(
+            model="google/gemini-2.0-flash-exp:free",
+            max_tokens=2000,
+            timeout=90,
+            messages=[{"role": "user", "content": content}]
+        )
     except Exception as api_err:
         print(f"[API HATA]: {str(api_err)}", file=sys.stderr, flush=True)
-        raise ValueError(f"Gemini API hatası: {str(api_err)}")
-    print(f"[GEMINI RAW]: {raw[:300]}", file=sys.stderr, flush=True)
+        raise ValueError(f"API hatası: {str(api_err)}")
+
+    raw = response.choices[0].message.content.strip()
+    print(f"[RAW]: {raw[:300]}", file=sys.stderr, flush=True)
     raw = re.sub(r'```json\s*', '', raw)
     raw = re.sub(r'```\s*', '', raw)
     raw = raw.strip()
@@ -206,6 +220,7 @@ def analyze():
                 try:
                     data = extract_data_from_images(list(pair))
                     results.append({"success": True, "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}", "output": process_match_data(data)})
+                    time.sleep(2)
                 except Exception as e:
                     print(f"[PAIR HATA]: {str(e)}", file=sys.stderr, flush=True)
                     results.append({"success": False, "match": pair[0]['name'], "error": str(e)})
@@ -214,6 +229,7 @@ def analyze():
                 try:
                     data = extract_data_from_images([img])
                     results.append({"success": True, "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}", "output": process_match_data(data)})
+                    time.sleep(2)
                 except Exception as e:
                     print(f"[IMG HATA]: {str(e)}", file=sys.stderr, flush=True)
                     results.append({"success": False, "match": img['name'], "error": str(e)})
