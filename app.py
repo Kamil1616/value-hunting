@@ -1,20 +1,16 @@
 import os
 import sys
 import math
-import base64
 import json
 import re
+import requests
 from flask import Flask, request, jsonify, render_template
-from openai import OpenAI
-from PIL import Image
-import io
 
 app = Flask(__name__)
 
-client = OpenAI(
-    api_key=os.environ.get("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1"
-)
+API_KEY = os.environ.get("API_FOOTBALL_KEY")
+BASE_URL = "https://v3.football.api-sports.io"
+HEADERS = {"x-apisports-key": API_KEY}
 
 W_SPEC     = 0.55
 W_GEN      = 0.45
@@ -23,7 +19,7 @@ GS_LEADER  = 1.08
 GS_DRAW    = 1.04
 LEAGUE_AVG = 1.20
 PAYOUT     = 0.90
-DC_RHO     = -0.13
+DC_RHO     = -0.14
 
 def poisson_pmf(k, lam):
     if lam <= 0: return 1.0 if k == 0 else 0.0
@@ -80,12 +76,13 @@ def format_bar(pct, max_len=20):
 
 def build_output(home_name, away_name, sorted_iyms, lam_h, lam_a):
     W = 52
-    lines = ["━"*W, f"  MAÇ · {home_name} vs {away_name}", f"  λ_ev={lam_h:.3f}  |  λ_dep={lam_a:.3f}", "━"*W,
+    lines = ["━"*W, f"  MAÇ · {home_name} vs {away_name}",
+             f"  λ_ev={lam_h:.3f}  |  λ_dep={lam_a:.3f}", "━"*W,
              f"  {'#':<4} {'İY/MS':<6} {'OLASILIK':<24} {'ORAN':>6}", "━"*W]
     for idx,(combo,prob) in enumerate(sorted_iyms,1):
         oran = (1/prob)*PAYOUT
         pct = prob*100
-        if idx==6: lines.append(f"  · · · · · · · · · · · · · · · · · · · · · · · ·")
+        if idx==6: lines.append("  · · · · · · · · · · · · · · · · · · · · · · · ·")
         lines.append(f"  {idx:<4} {combo:<6} {format_bar(pct)} {pct:>4.1f}%  {oran:>6.2f}")
     lines += ["━"*W, "", "━"*W, "  ✅ EN GÜÇLÜ 2 İHTİMAL", "━"*W]
     for i,(combo,prob) in enumerate(sorted_iyms[:2],1):
@@ -94,83 +91,100 @@ def build_output(home_name, away_name, sorted_iyms, lam_h, lam_a):
     lines.append("━"*W)
     return "\n".join(lines)
 
-VISION_PROMPT = """Bu iki görsel istatistik.nesine.com'dan:
-- Görsel 1: Genel sekmesi
-- Görsel 2: İç & Dış sekmesi
+def get_team_id(team_name):
+    r = requests.get(f"{BASE_URL}/teams", headers=HEADERS, params={"search": team_name})
+    data = r.json()
+    teams = data.get("response", [])
+    if not teams:
+        raise ValueError(f"Takım bulunamadı: {team_name}")
+    return teams[0]["team"]["id"], teams[0]["team"]["name"]
 
-Takımın KENDI perspektifinden: (attığı, yediği)
+def get_last_matches(team_id, venue, n=6):
+    """venue: home veya away"""
+    r = requests.get(f"{BASE_URL}/fixtures", headers=HEADERS, params={
+        "team": team_id,
+        "last": 20,
+        "status": "FT"
+    })
+    fixtures = r.json().get("response", [])
+    matches = []
+    for f in fixtures:
+        home_id = f["teams"]["home"]["id"]
+        away_id = f["teams"]["away"]["id"]
+        hg = f["goals"]["home"]
+        ag = f["goals"]["away"]
+        if hg is None or ag is None:
+            continue
+        if venue == "home" and home_id == team_id:
+            matches.append((hg, ag))
+        elif venue == "away" and away_id == team_id:
+            matches.append((ag, hg))
+        if len(matches) >= n:
+            break
+    return matches
 
-SADECE JSON döndür:
-{
-  "home_team": "takım adı",
-  "away_team": "takım adı",
-  "home_genel": [[attığı, yediği], ...],
-  "home_ic": [[attığı, yediği], ...],
-  "away_genel": [[attığı, yediği], ...],
-  "away_dis": [[attığı, yediği], ...]
-}"""
-
-def compress_image(data):
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.thumbnail((600, 600), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=60)
-        return buf.getvalue()
-    except:
-        return data
-
-def extract_data_from_images(img1, img2):
-    content = []
-    for img_data in [img1, img2]:
-        compressed = compress_image(img_data)
-        b64 = base64.standard_b64encode(compressed).decode('utf-8')
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-    content.append({"type": "text", "text": VISION_PROMPT})
-
-    response = client.chat.completions.create(
-        model="qwen/qwen3-vl-30b-a3b-thinking",
-        max_tokens=1000,
-        timeout=60,
-        messages=[{"role": "user", "content": content}]
-    )
-    raw = response.choices[0].message.content.strip()
-    print(f"[RAW]: {raw[:200]}", file=sys.stderr, flush=True)
-    raw = re.sub(r'```json\s*', '', raw)
-    raw = re.sub(r'```\s*', '', raw)
-    raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
-    raw = raw.strip()
-    return json.loads(raw)
-
-def process_match_data(data):
-    home_team  = data.get("home_team", "Ev Sahibi")
-    away_team  = data.get("away_team", "Deplasman")
-    home_genel = [tuple(x) for x in data.get("home_genel", [])]
-    home_ic    = [tuple(x) for x in data.get("home_ic", [])]
-    away_genel = [tuple(x) for x in data.get("away_genel", [])]
-    away_dis   = [tuple(x) for x in data.get("away_dis", [])]
-    if not home_ic: home_ic = home_genel
-    if not away_dis: away_dis = away_genel
-    if len(home_genel) < 3 or len(away_genel) < 3:
-        raise ValueError("Yeterli veri çıkarılamadı")
-    sorted_iyms, lam_h, lam_a = value_hunting_model(home_genel, home_ic, away_genel, away_dis)
-    return build_output(home_team, away_team, sorted_iyms, lam_h, lam_a)
+def get_all_matches(team_id, n=6):
+    r = requests.get(f"{BASE_URL}/fixtures", headers=HEADERS, params={
+        "team": team_id,
+        "last": 20,
+        "status": "FT"
+    })
+    fixtures = r.json().get("response", [])
+    matches = []
+    for f in fixtures:
+        home_id = f["teams"]["home"]["id"]
+        hg = f["goals"]["home"]
+        ag = f["goals"]["away"]
+        if hg is None or ag is None:
+            continue
+        if home_id == team_id:
+            matches.append((hg, ag))
+        else:
+            matches.append((ag, hg))
+        if len(matches) >= n:
+            break
+    return matches
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/test')
+def test():
+    try:
+        r = requests.get(f"{BASE_URL}/status", headers=HEADERS)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        files = request.files.getlist('images')
-        if len(files) < 2:
-            return jsonify({"error": "2 görsel gerekli (Genel + İç/Dış)"}), 400
-        img1 = files[0].read()
-        img2 = files[1].read()
-        data = extract_data_from_images(img1, img2)
-        output = process_match_data(data)
-        return jsonify({"results": [{"success": True, "match": f"{data.get('home_team','?')} vs {data.get('away_team','?')}", "output": output}]})
+        data = request.get_json()
+        home_name = data.get("home_team", "").strip()
+        away_name = data.get("away_team", "").strip()
+        if not home_name or not away_name:
+            return jsonify({"error": "Takım adları gerekli"}), 400
+
+        home_id, home_full = get_team_id(home_name)
+        away_id, away_full = get_team_id(away_name)
+
+        home_genel = get_all_matches(home_id)
+        home_ic    = get_last_matches(home_id, "home")
+        away_genel = get_all_matches(away_id)
+        away_dis   = get_last_matches(away_id, "away")
+
+        if not home_ic: home_ic = home_genel
+        if not away_dis: away_dis = away_genel
+
+        if len(home_genel) < 3 or len(away_genel) < 3:
+            return jsonify({"error": "Yeterli maç verisi bulunamadı"}), 400
+
+        sorted_iyms, lam_h, lam_a = value_hunting_model(home_genel, home_ic, away_genel, away_dis)
+        output = build_output(home_full, away_full, sorted_iyms, lam_h, lam_a)
+
+        return jsonify({"success": True, "output": output,
+                        "home_matches": len(home_genel), "away_matches": len(away_genel)})
     except Exception as e:
         print(f"[HATA]: {str(e)}", file=sys.stderr, flush=True)
         return jsonify({"error": str(e)}), 500
